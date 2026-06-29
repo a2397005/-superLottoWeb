@@ -1,0 +1,58 @@
+name: 威力彩開獎資料更新
+
+on:
+  schedule:
+    - cron: "30 13 * * 1"
+    - cron: "30 13 * * 4"
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "要抓幾個月的資料（預設 2，首次建議填 12）"
+        required: false
+        default: "2"
+
+jobs:
+  crawl:
+    name: 爬取開獎資料並推送
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Run crawler
+        env:
+          CRAWL_MONTHS: ${{ github.event.inputs.months || '2' }}
+        run: python scripts/crawl.py
+
+      - name: Check for changes
+        id: check
+        run: |
+          git diff --quiet data/draws.json \
+            && echo "changed=false" >> $GITHUB_OUTPUT \
+            || echo "changed=true"  >> $GITHUB_OUTPUT
+
+      - name: Commit and push updated data
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/draws.json
+          git commit -m "chore: 更新威力彩開獎資料 $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
+
+      - name: No changes
+        if: steps.check.outputs.changed == 'false'
+        run: echo "資料無變動，略過 commit"
